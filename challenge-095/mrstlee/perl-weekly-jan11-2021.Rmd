@@ -1,0 +1,270 @@
+---
+title: "Perl WC Jan 11 2021"
+output: html_notebook
+---
+
+## 95
+
+1. Palindrome number detector
+
+> Are first & last digits the same?
+
+* Read them off in pairs, shelling each pair as you go, until there are no more pairs.
+* This will work for odd & even numbers.
+
+> Does converting to other bases help?
+
+> Convert to string?
+
+* They are symmetric about a (possibly missing) central element.
+
+> Is there a geometric representation?
+
+*Much* easier way. Calculate the mid point, slice the digits to the left and string compare with right!
+
+Easier still - convert to string - reverse - compare!!!!
+
+
+```{r}
+library(tidyverse)
+n1 <- 11
+n2 <- 111
+n3 <- 1111
+
+pldrm_detect <- function(.n){
+  
+  n.as.str <- .n %>% as.character()
+  str.as.n <- n.as.str %>% str_split('') %>% unlist() %>% rev() %>% str_c(collapse = '')
+  n.as.str == str.as.n
+}
+
+
+c(n1,n2,n3,122) %>% map_lgl(~{
+  pldrm_detect(.x)
+  })
+
+```
+
+Could build a classifier?
+Somehow get from 121,true, 122,false training set to 'reverse & test equality'
+
+Numeric method - split digits into halves - lhs == rhs.
+
+Simply involves masking.
+
+* Detect power of 10
+* Calculate 1/2 way, e.g if power of 10 == 3 1/2 way = 2
+* Create mask to take left-most (or right-most) digits e.g. '111000' for the first 3 powers of a 6 digit number.
+* original - masked 
+  + Leaves either the right or leftmost digits.
+* Reverse to get the other side
+* Compare
+
+```{r}
+  po10 <- function(.x,.o=0){
+    .x.next <- .x/10
+    (.x.next < 1) && return(.o)
+    po10(.x.next,.o+1)
+  }
+
+pldrm_detect2 <- function(.n){
+  # Detect power of 10
+  p <- po10(.n)
+  p
+}
+
+c(1,11,111) %>% map_dbl(pldrm_detect2)
+
+```
+
+
+> Is there a probabilistic interpretation?
+
+> How would you design a function to generate a palidrome?
+
+> Is there something about 11's?
+
+Using a 'digirator' ($digi$ts ite$rator$) a reasonably simple method is:
+
+1. For each iteration multiply the digit by the power that is the reverse of its power in the original sequence - e.g no matter how many digits there are the last digit will be the first digit * $10^0$.
+2. Add the result to the running total of summed digits-to-the-reverse-power.
+3. You have your reversed digit sequence for comparison with the original.
+
+```{r}
+
+make_digirator <- function(.n){
+  
+  n.digits <- log10(.n) %>% floor()
+  tmp.n <- .n
+  function(){
+    if(n.digits == -1){ return(NULL)}
+    
+    next.d <- ( tmp.n/(10^n.digits)) %>% floor()
+    #glimpse(tibble(power = n.digits, n = tmp.n,d = next.d))
+    tmp.n <<- tmp.n - next.d*10^n.digits ## Note 'look up' assignment
+    n.digits <<- n.digits-1 ## Note 'look up' assignment
+    next.d
+  }
+  
+}
+
+test_digirator <- function(){
+digirate_22 <- make_digirator(22)
+
+digirate_22()
+digirate_22()
+
+digirate_127 <- make_digirator(127)
+
+digirate_127()
+digirate_127()
+digirate_127()
+digirate_127()
+}
+
+digi_mirror <- function(.n){
+
+  n <- abs(.n)
+  p_or_ng <- .n/n
+  digrater <- make_digirator(n)
+  n.digits <- log10(n) %>% ceiling()
+  n.revd <- 0
+  d.i <- 0
+  while (!is.null(d <- digrater()) ) {
+    expt <- d.i
+    n.revd <- n.revd + d*(10^expt)
+    d.i <- d.i+1
+  }
+  n.revd*p_or_ng
+}
+
+is_palindrome <- function(.n){
+  
+  .n == digi_mirror(.n)
+  
+}
+
+is_palindrome(11)
+is_palindrome(12)
+is_palindrome(1221)
+is_palindrome(12021)
+is_palindrome(12210)
+is_palindrome(-11)
+is_palindrome(-110)
+```
+
+
+There is a way to reverse 2 & 3 digit numbers if you know the 1st & last digits -
+For 2 digit numbers subtract the 2nd from 1st, multiply the result by 9, and subtract from starting number.
+e.g 27
+$$
+27 \\
+2-7 = -5  \\
+-5*9 = -45 \\
+27 - - 45 = 72 \\
+\\
+53 \\
+5-3 = 2 \\
+2*9 = 18 \\
+53-18 = 35
+$$
+
+For 3 digit numbers multiply by 99 instead of 9.
+
+For digit counts > 3 this method will only work if the middle digts are the same (obviously). But it does suggest a general method, here described for an even number of digits:
+
+1. Split the number into successive digit pairs, $p1,p2,...$ using the 'power-mask' method ($\copyright$ LRNOP) e.g with 274106:
+  + 27 41 06
+2. For each pair use the method of 9's
+  + 72 14 60
+3. Reverse the sequence of pairs
+  + 60 14 72
+4. Ta da.
+
+```{r}
+## Monster the digirator to make it return tuples
+make_n_digirator <- function(.n,.t.size=1){
+  
+  n.digits <- log10(.n) %>% ceiling()
+  n.tups <- (n.digits/.t.size) %>% ceiling()
+  tup.count <- 0
+
+  tmp.n <- .n
+  function(){
+    if(n.tups == tup.count){ 
+      ##Reset the counters in case the iterator is to be re-used
+        tmp.n <<- .n
+        n.digits <<- log10(.n) %>% ceiling()
+        #n.tups <<- n.digits/.t.size
+        tup.count <<- 0
+        print('DONE')
+      return(NULL)
+    }
+    power <- n.digits-.t.size
+    next.tup <- ( tmp.n/(10^power)) %>% floor()
+    # glimpse(tibble(power = power
+    #                , n = tmp.n
+    #                ,tup = next.tup
+    #                ,tup.sz=.t.size
+    #                ,total.digits=n.digits
+    #                ,odd.parity = odd.parity )
+    #         )
+    tmp.n <<- tmp.n - next.tup*10^power ## Note 'look up' assignment
+    n.digits <<- power ## Note 'look up' assignment
+    #n.tups <<- n.tups-1
+    tup.count <<- tup.count+1
+    next.tup
+  }
+  
+}
+
+test_n_drtr <- function(){
+  drtr <- make_n_digirator(1234,.t.size=1)
+  while(!is.null(d <- drtr())){
+    (d)
+  }
+}
+test_n_drtr()
+
+n1 <- 123456
+n2 <- 123321
+
+n_drtr <- make_n_digirator(1234,.t.size=2)
+while(!is.null(d <- n_drtr())){
+    print(d)
+  }
+
+1:2 %>% map_dbl(~{n_drtr()})
+
+## Need to handle odd numbers
+n_drtr2 <- make_n_digirator(12345,.t.size=2)
+while(!is.null(d <- n_drtr2())){
+    print(d)
+  }
+
+1:3 %>% map_dbl(~{n_drtr2()})
+
+n_drtr3 <- make_n_digirator(1234567,.t.size=2)
+
+while(!is.null(d <- n_drtr3())){
+    print(d)
+  }
+
+1:4 %>% map_dbl(~{n_drtr3()})
+
+
+```
+
+2. Stack ops
+
+eg.
+
+push($n) - add $n to the stack
+pop() - remove the top element
+top() - get the top element
+min() - return the minimum element
+
+```{r}
+
+```
+
